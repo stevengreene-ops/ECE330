@@ -9,6 +9,8 @@
 // headers
 #include "tmpl.h"
 #include <stdbool.h>
+#include "seg7.c"
+extern unsigned char _7SEG_ASCII[]; //INCLUDING 7SEG TEXT 11.13.26SG
 
 // forward declarations
 static void poll_switches ( void );
@@ -461,7 +463,38 @@ void state_start ( void )
 {
 
 	// todo
-	//
+
+	//RESETTING GAME VARIABLES
+	static uint32_t last_scroll_time = 0; //tracks systick ms count when text last shifted
+	static uint8_t scroll_index = 0; //tracks which char of the battleship string is aligned with first digit
+
+	char message[] = "    BATTLESHIP    "; //padding with spaces
+	int msg_len = sizeof(message) - 1; //calculating num of chars in string
+	uint8_t rx_byte; //rx_byte is temp storage var.
+
+	if ((device_state.time - last_scroll_time) >= 300) { //every 300ms elaps:
+		last_scroll_time = device_state.time; //updates last scrool time to current time
+		scroll_index++; //increments by one to shift text window 1 char to right
+		if (scroll_index > (msg_len - 8)) { // pads scroll window shifts chars to right 8 bits
+			scroll_index = 0;
+		}
+	}
+
+	for (int i = 0; i< 8; i++) {
+
+		char c = message[scroll_index + i];
+		uint8_t segment_pattern = _7SEG_ASCII[(unsigned char)c]; // takes ascii value of char, pulls to correct bitmask
+
+		Seven_Segment_Digit(i, segment_pattern, 0); //pushes bitmask to digit position i
+	}
+
+	if (button_read(BUTTON_START)) {
+		scroll_index = 0;
+		game_data_init();
+		current_state = STATE_P1_PLACE;
+	}
+
+
 
 	// done
 	return;
@@ -472,6 +505,12 @@ void state_p1_place ( void )
 
 	// todo
 	//
+	if (button_read(BUTTON_CONFIRM)) { //todo identify a button to confirm players place
+		save_player_ships(PLAYER_1);
+
+		scroll_index = 0;
+		current_state = STATE_P2_PLACE;
+	}
 
 	// done
 	return;
@@ -482,7 +521,26 @@ void state_p2_place ( void )
 
 	// todo
 	//
+	static uint32_t last_scroll_time = 0;
+	static uint8_t scroll_index = 0;
+	char message[] = "  P2 PLACE  ";
+	int msg_len = sizeof(message) - 1;
 
+	if ((device_state.time - last_scroll_time) >= 300) {
+		last_scroll_time = device_state.time;
+		scroll_index++;
+		if(scroll_index > (msg_len - 8)) scroll_index = 0;
+	}
+
+	for (int i = 0; i<0; i++) {
+		Seven_Segment_Digit(i, _7SEG_ASCII[(unsigned char)message[scroll_index + i]], 0);
+
+		if (button_read(BUTTON_CONFIRM)) {
+			scroll_index = 0;
+			current_state = STATE_P1_TURN;
+		}
+
+	}
 	// done
 	return;
 }
