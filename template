@@ -22,8 +22,11 @@ static fn_state *state_p1_turn;
 static fn_state *state_p2_turn;
 static fn_state *state_result;
 
+
 // data
-static fn_state *_pfn_states[] =
+
+
+static fn_state _pfn_states[] =
 {
 	[STATE_START]    = state_start,
 	[STATE_P1_PLACE] = state_p1_place,
@@ -147,6 +150,13 @@ static void poll_switches ( void )
 
 	// todo: store the state of the switches in device_state.sw
 	// This should be a while loop ?
+	if ((GPIOA->IDR & (1 << 0)) !=0) { //IF input data register !=0
+		device_state.sw = 0x01; //button pressed
+	}
+	else
+	{
+		device_state.sw = 0x00; //otherwise button is not pressed
+	}
 
 	// done
 	return;
@@ -157,6 +167,55 @@ static void poll_potentiometers ( void )
 
 	// todo: iterate through each potentiometer and store the value in the corresponding index of device_state._pa
 	// for loop to iterate through potentiometer
+
+	/** TESTING WHILE LOOP CONVERSION COMPLETION 11/13/26
+	for (int i = 0; i<3; i++) {
+		while (!(ADC1->SR & ADC_SR_EOC)); //waiting for conversion to complete
+
+		device_state._pa[i] = (unsigned char)(ADC1->DR >> 4);
+	}
+	**/
+
+	//Using LAB 10 conversion method///////////////////////////////////
+	///////////////////////////////////////////////////////////////////
+	/**
+	  ADC1->SQR3 = 1;
+	  HAL_Delay(1);
+	  ADC1->CR2 |= 1 << 30;
+
+	  // POT1
+	  ADC1->SQR3 = 1;
+	  ADC1->CR2 |= 1 << 30;                 // Start conversion
+	  while ((ADC1->SR & (1 << 1)) == 0) {} // Wait here until conversion is done
+	  device_state._pa = ADC1->DR >> 4;              // Safe to read now
+
+	  // POT2
+	  ADC1->SQR3 = 2;
+	  ADC1->CR2 |= 1 << 30;                 // Start conversion
+	  while ((ADC1->SR & (1 << 1)) == 0) {} // Wait here until conversion is done
+	  device_state._pa = ADC1->DR >> 4;            // Safe to read now
+
+	  // POT3
+	  ADC1->SQR3 = 3;
+	  ADC1->CR2 |= 1 << 30;                 // Start conversion
+	  while ((ADC1->SR & (1 << 1)) == 0) {} // Wait here until conversion is done
+	  device_state._pa = ADC1->DR >> 4;             // Safe to read now
+	  **/
+	  /////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////
+
+	  //TESTING COMBINED VERSION:
+
+	  const uint8_t pot_channels[3] = {1,2,3};
+
+	  for (int i = 0; i < 3; i++) {
+		  ADC1->SQR3 = pot_channels[i];
+		  ADC1->CR2 |= (1 << 30);
+
+		  while ((ADC1->SR & (1 << 1 )) ==0) {}
+
+		  device_state._pa[i] = (unsigned char)(ADC1->DR >> 4);
+	  }
 
 	// done
 	return;
@@ -205,15 +264,40 @@ extern void draw_board ( map _map )
 		}
 
 		// todo: set the middle segment based on the horizontal[1] map
-		// inserting segments 11/12 SG
+		// inserting segments for middle of board 11/12 SG
 		switch(_map.horizontal[1][i])
 		{
 		case STILL:
-			_board[i] |= 1;
+			_board[i] |= 0;
+			break;
+		case HIT:
+			_board[i] |= SEG7_MIDDLE;
+			break;
+		case MISS:
+			_board[i] |= should_dim ? SEG7_MIDDLE : 0;
+			break;
+		case CURSOR:
+			_board[i] |= should_blink ? SEG7_MIDDLE : 0;
+			break;
 		}
 
 		// todo: set the bottom segment based on the horizontal[2] map
-		//
+		// SET BOTTOM OF BOARD HORIZONTAL 11/12 SG
+		switch(_map.horizontal[2][i])
+		{
+		case STILL:
+			_board[i] |= 0;
+			break;
+		case HIT:
+			_board[i] |= SEG7_BOTTOM;
+			break;
+		case MISS:
+			_board[i] |= should_dim ? SEG7_BOTTOM : 0;
+			break;
+		case CURSOR:
+			_board[i] |= should_blink ? SEG7_BOTTOM : 0;
+			break;
+		}
 	}
 
 	// draw the vertical segments
@@ -221,17 +305,74 @@ extern void draw_board ( map _map )
 	{
 
 		// todo: set the top left segment based on the vertical[0] map
-		//
+		// TOPLEFT SET 11/12 SG
+		switch(_map.vertical[i][0])
+		{
+			case STILL:
+				_board[i] |= 0;
+				break;
+			case HIT:
+				_board[i] |= SEG7_TOP_LEFT;
+				break;
+			case MISS:
+				_board[i] |= should_dim ? SEG7_TOP_LEFT : 0;
+				break;
+			case CURSOR:
+				_board[i] |= should_blink ? SEG7_TOP_LEFT : 0;
+				break;
+		}
 
 		// todo: set the top right segment based on the vertical[0] map
-		//
-
+		// SET TOP RIGHT MAP 11/12 SG
+		switch(_map.vertical[i][1])
+		{
+			case STILL:
+				_board[i] |= 0;
+				break;
+			case HIT:
+				_board[i] |= SEG7_TOP_RIGHT;
+				break;
+			case MISS:
+				_board[i] |= should_dim ? SEG7_TOP_RIGHT : 0;
+				break;
+			case CURSOR:
+				_board[i] |= should_blink ? SEG7_TOP_RIGHT : 0;
+				break;
+		}
 		// todo: set the bottom left segment based on the vertical[1] map
 		//
-
+		switch(_map.vertical[i][2])
+		{
+			case STILL:
+				_board[i] |= 0;
+				break;
+			case HIT:
+				_board[i] |= SEG7_BOTTOM_LEFT;
+				break;
+			case MISS:
+				_board[i] |= should_dim ? SEG7_BOTTOM_LEFT : 0;
+				break;
+			case CURSOR:
+				_board[i] |= should_blink ? SEG7_BOTTOM_LEFT : 0;
+				break;
+		}
 		// todo: set the bottom right segment based on the vertical[1] map
-		//
-
+		// SET BOTTOMRIGHT MAP 11/12 SG
+		switch(_map.vertical[i][3])
+		{
+			case STILL:
+				_board[i] |= 0;
+				break;
+			case HIT:
+				_board[i] |= SEG7_BOTTOM_RIGHT;
+				break;
+			case MISS:
+				_board[i] |= should_dim ? SEG7_BOTTOM_RIGHT : 0;
+				break;
+			case CURSOR:
+				_board[i] |= should_blink ? SEG7_BOTTOM_RIGHT : 0;
+				break;
+		}
 	}
 
 	// write the board array to the seven segment display
