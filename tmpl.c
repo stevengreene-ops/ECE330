@@ -1,7 +1,7 @@
 /** !
  * Battleship implementation
  *
- * @file battleship.c
+ * @file tmpl.c
  *
  * @author Jacob Smith
  */
@@ -11,19 +11,18 @@
 #include <stdbool.h>
 //#include "seg7.c"
 extern unsigned char _7SEG_ASCII[]; //INCLUDING 7SEG TEXT 11.13.26SG
-
 // forward declarations
 static void poll_switches ( void );
 static void poll_potentiometers ( void );
 static void store_message ( const char *p_message );
 
-//static fn_state *state_start;
-//static fn_state *state_p1_place;
-//static fn_state *state_p2_place;
-//static fn_state *state_p1_turn;
-//static fn_state *state_p2_turn;
-//static fn_state *state_result;
-
+enum {
+	ORIENTATION_SWITCH = GPIO_PIN_1,
+	CONFIRM_BUTTON = GPIO_PIN_10,
+	SINGLE_SHIPS = 3,
+	SHIPS_PER_PLAYER = 5,
+	DISPLAY_DIGITS = 8
+};
 
 // data
 // Function prototypes (matches your function definitions)
@@ -51,7 +50,7 @@ struct
 	bool pc10;             // true IF PC10 is down ELSE false
 	bool pc11;             // true IF PC11 is down ELSE false
 	unsigned short _pa[3]; // raw potentiometer values (3 potentiometers -> 3 values -> array of 3 shorts)
-	unsigned int time;     // the time (in ms) since the board started (incremented by timer interrupt)
+	volatile unsigned int time;     // the time (in ms) since the board started (incremented by timer interrupt)
 } 
 device_state =
 {
@@ -157,14 +156,10 @@ static void poll_switches ( void )
 {
 
 	// todo: store the state of the switches in device_state.sw
-	if ((GPIOA->IDR & (1 << 0)) !=0) { //IF input data register !=0
-		device_state.sw = 0x01; //button pressed
-	}
-	else
-	{
-		device_state.sw = 0x00; //otherwise button is not pressed
-	}
 
+	device_state.sw = 0;
+
+	device_state.pc10 = ((GPIOC->IDR & (1 << 10)) != 0);
 	// done
 	return;
 }
@@ -175,43 +170,7 @@ static void poll_potentiometers ( void )
 	// todo: iterate through each potentiometer and store the value in the corresponding index of device_state._pa
 	// for loop to iterate through potentiometer
 
-	/** TESTING WHILE LOOP CONVERSION COMPLETION 11/13/26
-	for (int i = 0; i<3; i++) {
-		while (!(ADC1->SR & ADC_SR_EOC)); //waiting for conversion to complete
 
-		device_state._pa[i] = (unsigned char)(ADC1->DR >> 4);
-	}
-	**/
-
-	//Using LAB 10 conversion method///////////////////////////////////
-	///////////////////////////////////////////////////////////////////
-	/**
-	  ADC1->SQR3 = 1;
-	  HAL_Delay(1);
-	  ADC1->CR2 |= 1 << 30;
-
-	  // POT1
-	  ADC1->SQR3 = 1;
-	  ADC1->CR2 |= 1 << 30;                 // Start conversion
-	  while ((ADC1->SR & (1 << 1)) == 0) {} // Wait here until conversion is done
-	  device_state._pa = ADC1->DR >> 4;              // Safe to read now
-
-	  // POT2
-	  ADC1->SQR3 = 2;
-	  ADC1->CR2 |= 1 << 30;                 // Start conversion
-	  while ((ADC1->SR & (1 << 1)) == 0) {} // Wait here until conversion is done
-	  device_state._pa = ADC1->DR >> 4;            // Safe to read now
-
-	  // POT3
-	  ADC1->SQR3 = 3;
-	  ADC1->CR2 |= 1 << 30;                 // Start conversion
-	  while ((ADC1->SR & (1 << 1)) == 0) {} // Wait here until conversion is done
-	  device_state._pa = ADC1->DR >> 4;             // Safe to read now
-	  **/
-	  /////////////////////////////////////////////////////////////////
-	///////////////////////////////////////////////////////////////////
-
-	  //TESTING COMBINED VERSION:
 
 	  const uint8_t pot_channels[3] = {1,2,3};
 
@@ -219,10 +178,17 @@ static void poll_potentiometers ( void )
 		  ADC1->SQR3 = pot_channels[i];
 		  ADC1->CR2 |= (1 << 30);
 
-		  while ((ADC1->SR & (1 << 1 )) ==0) {}
+		  uint32_t timeout = 100000;
+		  while (((ADC1->SR & (1 << 1 )) ==0) && (timeout > 0)) {
+			  timeout--;
+		  }
 
-		  device_state._pa[i] = (unsigned char)(ADC1->DR >> 4);
-	  }
+		  if (timeout > 0U) {
+			  device_state._pa[i] = (unsigned char)(ADC1->DR >>4);
+		  } else {
+
+		  device_state._pa[i] = 0;
+	  }}
 
 	// done
 	return;
@@ -233,8 +199,6 @@ extern void timer_step ( void )
 
 	// todo: call this function from the SysTick handler
 	//
-
-	// increment the time
 	device_state.time++;
 
 	// done
@@ -404,7 +368,7 @@ extern void game_logic ( void )
 	switch (state)
 	{
 		case STATE_START:
-			if ( device_state.pc10 )
+			if ( device_state.pc10 ) //testing 11/19
 				state = STATE_P1_PLACE;
 			break;
 		
@@ -412,7 +376,7 @@ extern void game_logic ( void )
 		case STATE_P1_PLACE:
 
 			// transition
-			if ( 0 ) 
+			if ( device_state.pc10 )
 				state = STATE_P2_PLACE;
 			
 			break;
@@ -421,7 +385,8 @@ extern void game_logic ( void )
 		case STATE_P2_PLACE:
 
 			// transition
-			if ( 0 ) 
+			//if ( 0 ) testing 11/19
+			if (device_state.pc10)
 				state = STATE_P2_PLACE;
 
 			break;
@@ -484,42 +449,39 @@ void state_start ( void )
 		}
 	}
 
-	for (int i = 0; i< 8; i++) {
+	for (int i = 0; i < 8; i++) {
 
-		char c = message[scroll_index + i];
-		uint8_t segment_pattern = _7SEG_ASCII[(unsigned char)c]; // takes ascii value of char, pulls to correct bitmask
-
-		Seven_Segment_Digit(i, segment_pattern, 0); //pushes bitmask to digit position i
+		Seven_Segment_ASCII(7-i, (unsigned char)message[scroll_index + i], 0);
 	}
 
-	if (device_state.pc10) {
-		scroll_index = 0;
+	if (device_state.pc10) { //testing 11/19 8:09
 
-		for (int p = 0; p< PLAYER_QUANTITY; p++) {
+			scroll_index = 0;
+			last_scroll_time = device_state.time;
 
-			players[p].boats = 0;
+			for (int p = 0; p < PLAYER_QUANTITY; p++) {
+
+				players[p].boats = 0;
 
 				for (int m = 0; m < MAP_TYPE_QUANTITY; m++) {
 
 					for (int r = 0; r < 3; r++) {
-
 						for (int c = 0; c < 8; c++) {
 							players[p].maps[m].horizontal[r][c] = STILL;
 						}
 					}
 
-			for (int d = 0; d < 8; d++) {
-				for (int s = 0; s < 4; s++) {
-					players[p].maps[m].vertical[d][s] = STILL;
+					for (int d = 0; d < 8; d++) {
+						for (int s = 0; s < 4; s++) {
+							players[p].maps[m].vertical[d][s] = STILL;
+						}
+					}
 				}
 			}
-				}
-			}
-		}
-
-	// done
-	return;
-}
+	}
+		// done
+		return;
+	}
 
 static void state_p1_place ( void )
 {
@@ -531,6 +493,9 @@ static void state_p1_place ( void )
 	char message[] = "  P1 PLACE  ";
 	int msg_len = sizeof(message) - 1;
 
+	// 11/19 testing
+	device_state.pc10 = 0;
+
 	if ((device_state.time - last_scroll_time) >= 300) {
 		last_scroll_time = device_state.time;
 		scroll_index++;
@@ -538,16 +503,14 @@ static void state_p1_place ( void )
 	}
 
 	for (int i = 0; i < 8; i++) {
-		Seven_Segment_Digit(i, _7SEG_ASCII[(unsigned char)message[scroll_index + i]], 0);
-
+		Seven_Segment_Digit(7-i, _7SEG_ASCII[(unsigned char)message[scroll_index + i]], 0);
+	}
 		if (device_state.sw == 0x01) {
 			device_state.pc10 = 1;
 			scroll_index = 0;
-		} else {
-			device_state.pc10 = 0;
 		}
 
-	}
+
 	// done
 	return;
 }
@@ -561,6 +524,9 @@ static void state_p2_place ( void )
 	char message[] = "  P2 PLACE  ";
 	int msg_len = sizeof(message) - 1;
 
+	//11/19 testing
+	device_state.pc10 = 0;
+
 	if ((device_state.time - last_scroll_time) >= 300) {
 		last_scroll_time = device_state.time;
 		scroll_index++;
@@ -568,16 +534,14 @@ static void state_p2_place ( void )
 	}
 
 	for (int i = 0; i < 8; i++) {
-		Seven_Segment_Digit(i, _7SEG_ASCII[(unsigned char)message[scroll_index + i]], 0);
-
+		Seven_Segment_Digit(7-i, _7SEG_ASCII[(unsigned char)message[scroll_index + i]], 0);
+	}
 		if (device_state.sw == 0x01) {
 			device_state.pc10 = 1;
 			scroll_index = 0;
-		} else {
-			device_state.pc10 = 0;
 		}
 
-	}
+
 	// done
 	return;
 }
@@ -672,7 +636,7 @@ static void state_p2_turn ( void )
 	return;
 }
 
- void state_result ( void )
+ static void state_result ( void )
 {
 
 	// todo
